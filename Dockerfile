@@ -4,7 +4,6 @@ LABEL Description="mqtt2firebase image"
 
 RUN pip3 install firebase-admin
 
-COPY credentials.json /credentials.json
 COPY *.py /usr/bin/
 
 RUN chmod +x /usr/bin/mqtt2firebase.py
