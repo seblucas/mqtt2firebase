@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: latin-1 -*-
 #
-#  MQTT2firebase.py
+#  mqtt2firebase.py
 #
 #  Copyright 2016 Sébastien Lucas <sebastien@slucas.fr>
 #
@@ -27,7 +27,6 @@ import paho.mqtt.client as mqtt # pip install paho-mqtt
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
-# import urllib.parse
 
 verbose = False
 FIREBASE_BASE_URL = 'https://{0}.firebaseio.com'
@@ -40,16 +39,19 @@ def debug(msg):
   if verbose:
     print (msg + "\n")
 
-def getFirebaseBaseUrl(appName):
-  return FIREBASE_BASE_URL.format(appName)
+def environ_or_required(key):
+  if os.environ.get(key):
+    return {'default': os.environ.get(key)}
+  else:
+    return {'required': True}
 
 def sendToFirebase(sensorName, payload):
   try:
     if not args.dryRun:
       r = ref.child(sensorName).push(payload)
-      print ("result : " + r.key)
+      debug ("payload inserted : " + r.key)
     else:
-      print ("path : {0}\npayload : {1}".format(sensorName, payload))
+      debug ("path : {0}\npayload : {1}".format(sensorName, payload))
   except Exception as e:
     print ("Firebase Exception", str(e))
 
@@ -69,19 +71,22 @@ def on_message(client, userdata, msg):
 
 
 
-parser = argparse.ArgumentParser(description='Send MQTT payload received from a topic to firebase.')
-parser.add_argument('-a', '--firebase-api-key', dest='firebaseApiKey', action="store", required=True,
-                   help='Firebase API Key.')
+parser = argparse.ArgumentParser(description='Send MQTT payload received from a topic to firebase.', 
+  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('-a', '--firebase-credential-json', dest='firebaseApiKey', action="store",
+                   help='Firebase API Key / Can also be read from FIREBASE_CREDENTIAL_JSON env var.',
+                   **environ_or_required('FIREBASE_CREDENTIAL_JSON'))
 parser.add_argument('-m', '--mqtt-host', dest='host', action="store", default="127.0.0.1",
                    help='Specify the MQTT host to connect to.')
 parser.add_argument('-n', '--dry-run', dest='dryRun', action="store_true", default=False,
                    help='No data will be sent to the MQTT broker.')
-parser.add_argument('-N', '--firebase-app-name', dest='firebaseAppName', action="store", required=True,
-                   help='The firebase application name.')
+parser.add_argument('-N', '--firebase-app-name', dest='firebaseAppName', action="store",
+                   help='The firebase application name / Can also be read from FIREBASE_APP_NAME env var.',
+                   **environ_or_required('FIREBASE_APP_NAME'))
 parser.add_argument('-p', '--firebase-path', dest='firebasePath', action="store", default="/readings",
                    help='The firebase path where the payload will be saved')
 parser.add_argument('-t', '--topic', dest='topic', action="store", default="sensor/raw/#",
-                   help='The MQTT topic on which to get the payload.')
+                   help='The MQTT topic on which to get the payload, don\'t forget the trailing #.')
 parser.add_argument('-T', '--topic-error', dest='topicError', action="store", default="error/firebase", metavar="TOPIC",
                    help='The MQTT topic on which to publish the message (if it wasn\'t a success).')
 parser.add_argument('-v', '--verbose', dest='verbose', action="store_true", default=False,
@@ -93,7 +98,11 @@ signal.signal(signal.SIGTERM, signal_handler)
 args = parser.parse_args()
 verbose = args.verbose
 
-cred = credentials.Certificate('/credentials.json')
+pathOrCredentials = args.firebaseApiKey
+if (pathOrCredentials.startswith ('{')):
+  pathOrCredentials = json.loads(pathOrCredentials)
+
+cred = credentials.Certificate(pathOrCredentials)
 default_app = firebase_admin.initialize_app(cred, {
   'databaseURL': FIREBASE_BASE_URL.format(args.firebaseAppName)
 })
