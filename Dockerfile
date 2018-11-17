@@ -8,5 +8,4 @@ COPY *.py /usr/bin/
 
 RUN chmod +x /usr/bin/mqtt2firebase.py
 
-ENTRYPOINT ["mqtt2firebase.py"]
-CMD ["--help"]
+ENTRYPOINT ["/bin/sh"]
