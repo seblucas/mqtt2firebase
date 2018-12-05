@@ -53,6 +53,7 @@ def sendToFirebase(sensorName, payload):
       else:
         r = ref.push(payload)
       debug ("payload inserted : " + r.key)
+      client.publish('firebase/new', r.key)
     else:
       debug ("path : {0}\npayload : {1}".format(sensorName, payload))
   except Exception as e:
