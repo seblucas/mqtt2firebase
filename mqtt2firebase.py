@@ -48,7 +48,10 @@ def environ_or_required(key):
 def sendToFirebase(sensorName, payload):
   try:
     if not args.dryRun:
-      r = ref.child(sensorName).push(payload)
+      if (args.topicAsChild):
+        r = ref.child(sensorName).push(payload)
+      else:
+        r = ref.push(payload)
       debug ("payload inserted : " + r.key)
     else:
       debug ("path : {0}\npayload : {1}".format(sensorName, payload))
@@ -76,6 +79,8 @@ parser = argparse.ArgumentParser(description='Send MQTT payload received from a 
 parser.add_argument('-a', '--firebase-credential-json', dest='firebaseApiKey', action="store",
                    help='Firebase API Key / Can also be read from FIREBASE_CREDENTIAL_JSON env var.',
                    **environ_or_required('FIREBASE_CREDENTIAL_JSON'))
+parser.add_argument('-c', '--use-topic-as-child', dest='topicAsChild', action="store", default=True,
+                   help='Use the last part of the MQTT topic as a child for Firebase.')
 parser.add_argument('-m', '--mqtt-host', dest='host', action="store", default="127.0.0.1",
                    help='Specify the MQTT host to connect to.')
 parser.add_argument('-n', '--dry-run', dest='dryRun', action="store_true", default=False,
