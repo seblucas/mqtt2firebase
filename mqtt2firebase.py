@@ -66,6 +66,11 @@ def on_connect(client, userdata, flags, rc):
     # reconnect then subscriptions will be renewed.
     client.subscribe(args.topic)
 
+def on_disconnect(client, userdata, rc):
+    debug("Disconnected with result code "+str(rc))
+    if rc != 0:
+      debug("Unexpected disconnection.")
+
 def on_message(client, userdata, msg):
     sensorName = msg.topic.split('/') [-1]
     debug("Received message from {0} with payload {1} to be published to {2}".format(msg.topic, str(msg.payload), sensorName))
@@ -117,6 +122,7 @@ ref = db.reference(args.firebasePath)
 
 client = mqtt.Client()
 client.on_connect = on_connect
+client.on_disconnect = on_disconnect
 client.on_message = on_message
 
 client.connect(args.host, 1883, 60)
