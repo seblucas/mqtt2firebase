@@ -2,7 +2,9 @@ FROM seblucas/alpine-python3:latest
 LABEL maintainer="Sebastien Lucas <sebastien@slucas.fr>"
 LABEL Description="mqtt2firebase image"
 
-RUN pip3 install firebase-admin
+COPY requirements.txt /tmp
+
+RUN pip3 install -r /tmp/requirements.txt
 
 COPY *.py /usr/bin/
 

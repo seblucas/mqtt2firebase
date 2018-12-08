@@ -22,7 +22,9 @@
 #
 
 
-import os, re, time, json, argparse, signal
+import os, re, time, json, argparse, signal, threading
+from queue import Queue, Empty
+
 import paho.mqtt.client as mqtt # pip install paho-mqtt
 import firebase_admin
 from firebase_admin import credentials
@@ -33,6 +35,8 @@ FIREBASE_BASE_URL = 'https://{0}.firebaseio.com'
 
 def signal_handler(signal, frame):
   print('You pressed Ctrl+C!')
+  stop_event.set()
+  t1.join()
   client.disconnect()
 
 def debug(msg):
@@ -46,6 +50,7 @@ def environ_or_required(key):
     return {'required': True}
 
 def sendToFirebase(sensorName, payload):
+  debug ("Start sendToFirebase")
   try:
     if not args.dryRun:
       if (args.topicAsChild):
@@ -53,11 +58,28 @@ def sendToFirebase(sensorName, payload):
       else:
         r = ref.push(payload)
       debug ("payload inserted : " + r.key)
-      client.publish('firebase/new', r.key)
+      #client.publish('firebase/new', r.key)
     else:
       debug ("path : {0}\npayload : {1}".format(sensorName, payload))
   except Exception as e:
     print ("Firebase Exception", str(e))
+    pass
+  debug ("End sendToFirebase")
+
+def process_firebase_messages(lqueue, stop_event):
+  while not stop_event.is_set():
+    try:
+      packet = lqueue.get(False)
+    except Empty:
+      time.sleep(10)
+      pass
+    else:
+      if packet is None:
+        continue
+      debug("data from queue: " + format(packet))
+      sendToFirebase(packet['topic'], packet['payload'])
+      queue.task_done()
+  debug("Stopping Firebase Thread ...")
 
 def on_connect(client, userdata, flags, rc):
     debug("Connected with result code "+str(rc))
@@ -76,7 +98,8 @@ def on_message(client, userdata, msg):
     debug("Received message from {0} with payload {1} to be published to {2}".format(msg.topic, str(msg.payload), sensorName))
     nodeData = msg.payload
     newObject = json.loads(nodeData.decode('utf-8'))
-    sendToFirebase(sensorName, newObject)
+    #sendToFirebase(sensorName, newObject)
+    queue.put({ "topic": sensorName, "payload": newObject})
 
 
 
@@ -119,6 +142,11 @@ default_app = firebase_admin.initialize_app(cred, {
 })
 ref = db.reference(args.firebasePath)
 
+queue = Queue()
+stop_event = threading.Event()
+t1 = threading.Thread(target=process_firebase_messages, args=[queue, stop_event])
+t1.daemon = True
+t1.start()
 
 client = mqtt.Client()
 client.on_connect = on_connect
