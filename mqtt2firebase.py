@@ -33,6 +33,9 @@ from google.auth.transport.requests import AuthorizedSession
 
 
 verbose = False
+NOTHING_TO_DO_DELAY = 5
+FIREBASE_TIMEOUT  = 7
+FIREBASE_MAX_RETRY  = 2
 FIREBASE_BASE_URL = 'https://{0}.firebaseio.com'
 
 def signal_handler(signal, frame):
@@ -51,23 +54,6 @@ def environ_or_required(key):
   else:
     return {'required': True}
 
-def sendToFirebase(sensorName, payload):
-  debug ("Start sendToFirebase")
-  try:
-    if not args.dryRun:
-      if args.topicAsChild:
-        r = ref.child(sensorName).push(payload)
-      else:
-        r = ref.push(payload)
-      debug ("payload inserted : " + r.key)
-      #client.publish('firebase/new', r.key)
-    else:
-      debug ("path : {0}\npayload : {1}".format(sensorName, payload))
-  except Exception as e:
-    print ("Firebase Exception", str(e))
-    pass
-  debug ("End sendToFirebase")
-
 def process_firebase_messages(lqueue, stop_event):
   firebaseSession = AuthorizedSession(credentials)
   baseUrl = FIREBASE_BASE_URL.format(args.firebaseAppName)
@@ -76,7 +62,7 @@ def process_firebase_messages(lqueue, stop_event):
     try:
       packet = lqueue.get(False)
     except Empty:
-      time.sleep(5)
+      time.sleep(NOTHING_TO_DO_DELAY)
       pass
     else:
       if packet is None:
@@ -87,20 +73,23 @@ def process_firebase_messages(lqueue, stop_event):
         firebasePath = urllib.parse.urljoin(args.firebasePath + '/', packet['topic'])
       firebasePath = baseUrl + '/' + firebasePath + '.json'
       debug ("Sending {0} to this URL {1}".format(packet['payload'], firebasePath))
-      try:
-        if not args.dryRun:
-          r = firebaseSession.post(firebasePath, json=packet['payload'], timeout=5)
-          debug ("payload inserted : " + r.text)
-      except requests.exceptions.Timeout:
-        print ("Firebase Timeout")
-        pass
-      except requests.exceptions.RequestException as e:
-        print ("Firebase Exception" + str(e))
-        pass
-      except:
-        print ("Firebase Unknown Exception")
-        pass
-      #sendToFirebase(packet['topic'], packet['payload'])
+      retry = 0
+      while True:
+        try:
+          if not args.dryRun:
+            r = firebaseSession.post(firebasePath, json=packet['payload'], timeout=FIREBASE_TIMEOUT)
+            debug ("payload inserted : " + r.text)
+        except requests.exceptions.Timeout:
+          print ("Firebase Timeout")
+          if retry < FIREBASE_MAX_RETRY:
+            retry += 1
+            debug ("Retrying")
+            continue
+        except requests.exceptions.RequestException as e:
+          print ("Firebase Exception" + str(e))
+        except:
+          print ("Firebase Unknown Exception")
+        break
       queue.task_done()
   firebaseSession.close()
   debug("Stopping Firebase Thread ...")
@@ -157,7 +146,9 @@ args = parser.parse_args()
 verbose = args.verbose
 
 pathOrCredentials = args.firebaseApiKey
+isFile = True
 if (pathOrCredentials.startswith ('{')):
+  isFile = False
   pathOrCredentials = json.loads(pathOrCredentials)
 
 # Define the required scopes
@@ -167,16 +158,12 @@ scopes = [
 ]
 
 # Authenticate a credential with the service account
-credentials = service_account.Credentials.from_service_account_info(
-    pathOrCredentials, scopes=scopes)
-# credentials = service_account.Credentials.from_service_account_file(
-#     pathOrCredentials, scopes=scopes)
-
-# cred = credentials.Certificate(pathOrCredentials)
-# default_app = firebase_admin.initialize_app(cred, {
-#   'databaseURL': FIREBASE_BASE_URL.format(args.firebaseAppName)
-# })
-# ref = db.reference(args.firebasePath)
+if isFile:
+  credentials = service_account.Credentials.from_service_account_file(
+      pathOrCredentials, scopes=scopes)
+else:
+  credentials = service_account.Credentials.from_service_account_info(
+      pathOrCredentials, scopes=scopes)
 
 queue = Queue()
 stop_event = threading.Event()
