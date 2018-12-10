@@ -1,2 +1,2 @@
 paho-mqtt
-firebase-admin==2.13.0
+google-auth
