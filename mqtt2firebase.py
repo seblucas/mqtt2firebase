@@ -84,6 +84,7 @@ def process_firebase_messages(lqueue, stop_event):
           if retry < FIREBASE_MAX_RETRY:
             retry += 1
             debug ("Retrying")
+            time.sleep(NOTHING_TO_DO_DELAY)
             continue
         except requests.exceptions.RequestException as e:
           print ("Firebase Exception" + str(e))
