@@ -68,9 +68,9 @@ def process_firebase_messages(lqueue, stop_event):
       if packet is None:
         continue
       debug("data from queue: " + format(packet))
-      firebasePath = args.firebasePath
-      if args.topicAsChild:
-        firebasePath = urllib.parse.urljoin(args.firebasePath + '/', packet['topic'])
+      firebasePath = packet['config']['firebasePath']
+      if packet['config']['topicAsChild']:
+        firebasePath = urllib.parse.urljoin(packet['config']['firebasePath'] + '/', packet['topic'])
       firebasePath = baseUrl + '/' + firebasePath + '.json'
       debug ("Sending {0} to this URL {1}".format(packet['payload'], firebasePath))
       retry = 0
@@ -100,7 +100,8 @@ def on_connect(client, userdata, flags, rc):
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
-    client.subscribe(args.topic)
+    for topic in topics:
+      client.subscribe(topic['mqttTopic'])
 
 def on_disconnect(client, userdata, rc):
     debug("Disconnected with result code "+str(rc))
@@ -108,14 +109,18 @@ def on_disconnect(client, userdata, rc):
       debug("Unexpected disconnection.")
 
 def on_message(client, userdata, msg):
-    sensorName = msg.topic.split('/') [-1]
-    debug("Received message from {0} with payload {1} to be published to {2}".format(msg.topic, str(msg.payload), sensorName))
-    nodeData = msg.payload
-    newObject = json.loads(nodeData.decode('utf-8'))
-    #sendToFirebase(sensorName, newObject)
-    queue.put({ "topic": sensorName, "payload": newObject})
-
-
+    for topic in topics:
+      if topic['mqttTopicRegex'].match(msg.topic):
+        sensorName = msg.topic.split('/') [-1]
+        debug("Received message from {0} matching {3} with payload {1} to be published to {2}".format(msg.topic, str(msg.payload), sensorName, topic['mqttTopic']))
+        nodeData = msg.payload
+        newObject = json.loads(nodeData.decode('utf-8'))
+        #sendToFirebase(sensorName, newObject)
+        queue.put({
+          "topic": sensorName,
+          "payload": newObject,
+          "config": topic
+        })
 
 parser = argparse.ArgumentParser(description='Send MQTT payload received from a topic to firebase.', 
   formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -131,10 +136,10 @@ parser.add_argument('-n', '--dry-run', dest='dryRun', action="store_true", defau
 parser.add_argument('-N', '--firebase-app-name', dest='firebaseAppName', action="store",
                    help='The firebase application name / Can also be read from FIREBASE_APP_NAME env var.',
                    **environ_or_required('FIREBASE_APP_NAME'))
-parser.add_argument('-p', '--firebase-path', dest='firebasePath', action="store", default="/readings",
-                   help='The firebase path where the payload will be saved')
-parser.add_argument('-t', '--topic', dest='topic', action="store", default="sensor/raw/#",
-                   help='The MQTT topic on which to get the payload, don\'t forget the trailing #.')
+# parser.add_argument('-p', '--firebase-path', dest='firebasePath', action="store", default="/readings",
+#                    help='The firebase path where the payload will be saved')
+parser.add_argument('-t', '--topic', dest='topics', action="append",
+                   help='The MQTT topic on which to get the payload and the Firebase path, don\'t forget the trailing #. Can be called many times.')
 parser.add_argument('-T', '--topic-error', dest='topicError', action="store", default="error/firebase", metavar="TOPIC",
                    help='The MQTT topic on which to publish the message (if it wasn\'t a success).')
 parser.add_argument('-v', '--verbose', dest='verbose', action="store_true", default=False,
@@ -157,6 +162,19 @@ scopes = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/firebase.database"
 ]
+
+topics = []
+for topic in args.topics:
+  newTopic = {
+    "mqttTopic": topic.split(':')[0],
+    "firebasePath": topic.split(':')[1],
+    "topicAsChild": False
+  }
+  newTopic["mqttTopicRegex"] = re.compile('^' + newTopic["mqttTopic"].replace('#', ''))
+  if newTopic["firebasePath"].endswith('/#'):
+    newTopic["topicAsChild"] = True
+    newTopic["firebasePath"] = newTopic["firebasePath"][:-2]
+  topics.append(newTopic)
 
 # Authenticate a credential with the service account
 if isFile:
